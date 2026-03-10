@@ -158,6 +158,102 @@
             text-align: right;
         }
 
+        /* ツールボタン行 */
+        .tool-btns {
+            display: flex;
+            gap: 8px;
+            padding: 0 12px 12px;
+            flex-wrap: wrap;
+        }
+        .tool-btn {
+            background: #3a3a3a;
+            color: #ddd;
+            border: 1px solid var(--border);
+            padding: 7px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s;
+            white-space: nowrap;
+        }
+        .tool-btn:active { background: #555; }
+
+        /* 除外タグ設定セクション */
+        .exclude-section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            overflow: hidden;
+        }
+        .exclude-head {
+            padding: 10px 16px;
+            font-size: 13px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            user-select: none;
+            background: #252525;
+        }
+        .exclude-head span { color: var(--muted); font-size: 18px; }
+        .exclude-body {
+            padding: 12px 16px;
+            border-top: 1px solid var(--border);
+        }
+        .exclude-body p {
+            font-size: 12px;
+            color: var(--muted);
+            margin-bottom: 8px;
+            line-height: 1.6;
+        }
+        .exclude-body textarea {
+            min-height: 70px;
+            font-size: 13px;
+            color: #ccc;
+            background: #1a1a1a;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 12px;
+        }
+        .exclude-actions {
+            margin-top: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .exclude-save-btn {
+            background: #444;
+            color: #fff;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+        }
+        .exclude-save-btn:active { background: #555; }
+        .exclude-io {
+            display: flex;
+            gap: 8px;
+        }
+        .io-btn {
+            flex: 1;
+            background: #333;
+            color: #ccc;
+            border: 1px solid var(--border);
+            padding: 8px 0;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            text-align: center;
+            display: block;
+        }
+        .io-btn:active { background: #444; }
+
         /* 保存ボタン */
         .save-btn {
             background: var(--success);
@@ -230,6 +326,42 @@
                 placeholder="ポジティブプロンプトを入力..."
                 oninput="updateCount('positive','posCount')"></textarea>
             <div class="char-count" id="posCount">0 文字</div>
+            <div class="tool-btns">
+                <button class="tool-btn" onclick="applyRemoveNegativeWeights()">
+                    🗑 マイナス強調を削除
+                </button>
+                <button class="tool-btn" onclick="applyRemoveExcludeTags()">
+                    🚫 除外タグを削除
+                </button>
+            </div>
+        </div>
+
+        <!-- 除外タグ設定 -->
+        <div class="exclude-section">
+            <div class="exclude-head" onclick="toggleExclude()">
+                <span>🏷 除外タグ設定</span>
+                <span id="excludeArrow">▶</span>
+            </div>
+            <div class="exclude-body" id="excludeBody" style="display:none">
+                <p>削除したいタグをカンマ区切りで入力してください。<br>設定はこの端末に保存されます。</p>
+                <textarea id="excludeTags"
+                    placeholder="nsfw, bad quality, worst quality, ..."></textarea>
+                <div class="exclude-actions">
+                    <button class="exclude-save-btn" onclick="saveExcludeTags()">
+                        💾 保存
+                    </button>
+                    <div class="exclude-io">
+                        <button class="io-btn" onclick="exportExcludeTags()">
+                            📤 エクスポート
+                        </button>
+                        <label class="io-btn">
+                            📥 インポート
+                            <input type="file" id="excludeImportInput" accept=".txt" style="display:none"
+                                onchange="importExcludeTags(event)">
+                        </label>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- ネガティブ -->
@@ -618,6 +750,156 @@ document.getElementById('fileInput').addEventListener('change', async (e) => {
         console.error(err);
     }
 });
+
+// ============================================================
+// プロンプト加工ユーティリティ（png_meta.py の JS 移植版）
+// ============================================================
+
+/**
+ * マイナス強調グループ (tag:-数字) をポジティブプロンプトから削除する
+ * 例: (bad quality:-1.5) → 削除
+ * @param {string} prompt
+ * @returns {string}
+ */
+function removeNegativeWeightGroups(prompt) {
+    let result = prompt.replace(/\([^()]*:-[0-9.]+\)\s*,?\s*/g, '');
+    result = result.replace(/,\s*,/g, ',');
+    result = result.trim().replace(/^,|,$/g, '').trim();
+    return result;
+}
+
+/**
+ * タグ文字列から純粋なタグ名を取り出す
+ * 例: (tagname:1.2) → tagname  /  [tagname] → tagname
+ * @param {string} tag
+ * @returns {string}
+ */
+function extractTagName(tag) {
+    const s = tag.trim();
+    // (xxx:数字) または [xxx:数字] 形式
+    let m = s.match(/^[\(\[](.*?):[0-9.\-]+[\)\]]$/);
+    if (m) return m[1].trim();
+    // (xxx) または [xxx] 形式
+    m = s.match(/^[\(\[](.*?)[\)\]]$/);
+    if (m) return m[1].trim();
+    return s;
+}
+
+/**
+ * 除外タグリストに含まれるタグをプロンプトから削除する
+ * @param {string} prompt
+ * @param {string[]} excludeTags 小文字で渡すこと
+ * @returns {string}
+ */
+function removeExcludeTags(prompt, excludeTags) {
+    if (!excludeTags || excludeTags.length === 0) return prompt;
+    const excludeSet = new Set(excludeTags);
+
+    // BREAK をカンマに正規化
+    const normalized = prompt.replace(/\s*\bBREAK\b\s*/gi, ', ');
+
+    const result = [];
+    for (const rawTag of normalized.split(',')) {
+        const tag = rawTag.trim();
+        if (!tag) continue;
+        const clean = extractTagName(tag).toLowerCase();
+        if (!excludeSet.has(clean)) result.push(tag);
+    }
+    return result.join(', ');
+}
+
+// ============================================================
+// UI — ツールボタンのアクション
+// ============================================================
+
+/** マイナス強調削除をポジティブに適用する */
+function applyRemoveNegativeWeights() {
+    const el = document.getElementById('positive');
+    const before = el.value;
+    el.value = removeNegativeWeightGroups(before);
+    updateCount('positive', 'posCount');
+    const removed = before.length - el.value.length;
+    showToast(removed > 0 ? `マイナス強調を削除しました` : '対象なし');
+}
+
+/** 除外タグ削除をポジティブに適用する */
+function applyRemoveExcludeTags() {
+    const raw = localStorage.getItem('excludeTags') || '';
+    const tags = raw.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
+    if (tags.length === 0) {
+        showToast('除外タグが設定されていません', 'err');
+        return;
+    }
+    const el = document.getElementById('positive');
+    const before = el.value;
+    el.value = removeExcludeTags(before, tags);
+    updateCount('positive', 'posCount');
+    showToast('除外タグを削除しました');
+}
+
+// ============================================================
+// UI — 除外タグ設定パネル
+// ============================================================
+
+/** 除外タグ設定パネルの開閉 */
+function toggleExclude() {
+    const body  = document.getElementById('excludeBody');
+    const arrow = document.getElementById('excludeArrow');
+    const open  = body.style.display === 'none';
+    body.style.display  = open ? 'block' : 'none';
+    arrow.textContent   = open ? '▼' : '▶';
+    // 開いたとき localStorageの値を反映
+    if (open) {
+        document.getElementById('excludeTags').value =
+            localStorage.getItem('excludeTags') || '';
+    }
+}
+
+/** 除外タグを localStorage に保存する */
+function saveExcludeTags() {
+    const val = document.getElementById('excludeTags').value.trim();
+    localStorage.setItem('excludeTags', val);
+    showToast('除外タグを保存しました！', 'ok');
+}
+
+/** 除外タグを .txt ファイルとしてダウンロードする */
+function exportExcludeTags() {
+    const val = document.getElementById('excludeTags').value.trim();
+    if (!val) {
+        showToast('タグが入力されていません', 'err');
+        return;
+    }
+    const blob = new Blob([val], { type: 'text/plain' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'exclude_tags.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast('エクスポートしました！', 'ok');
+}
+
+/**
+ * .txt ファイルから除外タグをインポートする
+ * @param {Event} event
+ */
+function importExcludeTags(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const val = e.target.result.trim();
+        document.getElementById('excludeTags').value = val;
+        localStorage.setItem('excludeTags', val);
+        showToast('インポートしました！', 'ok');
+    };
+    reader.onerror = () => showToast('読み込みエラー', 'err');
+    reader.readAsText(file, 'utf-8');
+    // 同じファイルを再インポートできるようにリセット
+    event.target.value = '';
+}
 
 /**
  * 編集済み PNG をダウンロードする
