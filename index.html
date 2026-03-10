@@ -578,15 +578,6 @@ function makeParamsChunk(text) {
 }
 
 /**
- * 元のチャンクをバイト列にシリアライズする（CRC を再計算して書き込む）
- * @param {{type:string, data:Uint8Array}} chunk
- * @returns {Uint8Array}
- */
-function serializeChunk(chunk) {
-    return makeChunk(chunk.type, chunk.data);
-}
-
-/**
  * 複数の Uint8Array を連結する
  * @param {Uint8Array[]} arrays
  * @returns {Uint8Array}
@@ -600,45 +591,68 @@ function concatArrays(arrays) {
 }
 
 /**
- * PNG を新しい parameters で再構築して返す
+ * PNG を新しい parameters で再構築して返す。
+ * 変更しないチャンクは元バイトをそのままコピーするため、CRC の再計算は不要。
  * @param {ArrayBuffer} originalBuffer
  * @param {string} newRaw 新しい parameters テキスト
  * @returns {Uint8Array}
  */
 function buildPNG(originalBuffer, newRaw) {
-    const chunks = parsePNG(originalBuffer);
-    const parts = [PNG_SIG];
+    const orig = new Uint8Array(originalBuffer);
+    const parts = [];
+
+    // PNG シグネチャをそのままコピー
+    parts.push(orig.slice(0, 8));
+
+    let offset = 8;
     let paramsWritten = false;
 
-    for (const chunk of chunks) {
-        // 既存の parameters チャンクを置き換える
-        if ((chunk.type === 'tEXt' || chunk.type === 'iTXt') && isParamsChunk(chunk)) {
+    while (offset < orig.length) {
+        const dv       = new DataView(originalBuffer, offset);
+        const chunkLen = dv.getUint32(0);   // big-endian
+        const chunkType = String.fromCharCode(
+            orig[offset + 4], orig[offset + 5],
+            orig[offset + 6], orig[offset + 7]
+        );
+        const chunkEnd = offset + 12 + chunkLen;  // [4:len][4:type][N:data][4:crc]
+
+        // parameters チャンクか判定（元バイトを直接確認）
+        const isParams = (chunkType === 'tEXt' || chunkType === 'iTXt') &&
+            startsWithParametersKeyword(orig, offset + 8);
+
+        if (isParams) {
+            // 新しい parameters チャンクで置換（CRC 付きで新規生成）
             parts.push(makeParamsChunk(newRaw));
             paramsWritten = true;
-            continue;
+        } else {
+            // IDAT の前に parameters をまだ書いていなければ挿入
+            if (!paramsWritten && chunkType === 'IDAT') {
+                parts.push(makeParamsChunk(newRaw));
+                paramsWritten = true;
+            }
+            // 元のチャンクバイトをそのまま丸コピー（CRC も含めて）
+            parts.push(orig.slice(offset, chunkEnd));
         }
 
-        // IDAT の前に parameters がなければここで挿入する
-        if (!paramsWritten && chunk.type === 'IDAT') {
-            parts.push(makeParamsChunk(newRaw));
-            paramsWritten = true;
-        }
-
-        parts.push(serializeChunk(chunk));
+        offset = chunkEnd;
+        if (chunkType === 'IEND') break;
     }
 
     return concatArrays(parts);
 }
 
 /**
- * チャンクが "parameters" キーワードを持つか判定する
- * @param {{data:Uint8Array}} chunk
+ * 指定バイト位置のチャンクデータが "parameters\0" で始まるか確認する
+ * @param {Uint8Array} bytes
+ * @param {number} dataStart チャンクデータの開始位置
  * @returns {boolean}
  */
-function isParamsChunk(chunk) {
-    const nullIdx = chunk.data.indexOf(0);
-    if (nullIdx < 0) return false;
-    return decodeBytes(chunk.data.slice(0, nullIdx)) === 'parameters';
+function startsWithParametersKeyword(bytes, dataStart) {
+    const keyword = 'parameters';
+    for (let i = 0; i < keyword.length; i++) {
+        if (bytes[dataStart + i] !== keyword.charCodeAt(i)) return false;
+    }
+    return bytes[dataStart + keyword.length] === 0;
 }
 
 // ============================================================
