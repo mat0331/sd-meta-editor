@@ -434,7 +434,7 @@ const PNG_SIG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 /**
  * PNG バイト列をチャンクのリストに分解する
  * @param {ArrayBuffer} buffer
- * @returns {Array<{type:string, data:Uint8Array, storedCrc:number}>}
+ * @returns {Array<{type:string, data:Uint8Array}>}
  */
 function parsePNG(buffer) {
     const bytes = new Uint8Array(buffer);
@@ -453,9 +453,8 @@ function parsePNG(buffer) {
             bytes[offset + 4], bytes[offset + 5],
             bytes[offset + 6], bytes[offset + 7]
         );
-        const data      = bytes.slice(offset + 8, offset + 8 + length);
-        const storedCrc = view.getUint32(4 + length);
-        chunks.push({ type, data, storedCrc });
+        const data = bytes.slice(offset + 8, offset + 8 + length);
+        chunks.push({ type, data });
         offset += 12 + length;
         if (type === 'IEND') break;
     }
@@ -579,22 +578,12 @@ function makeParamsChunk(text) {
 }
 
 /**
- * 元のチャンクをそのままバイト列にシリアライズする（CRC はコピー）
- * @param {{type:string, data:Uint8Array, storedCrc:number}} chunk
+ * 元のチャンクをバイト列にシリアライズする（CRC を再計算して書き込む）
+ * @param {{type:string, data:Uint8Array}} chunk
  * @returns {Uint8Array}
  */
 function serializeChunk(chunk) {
-    const typeBytes = new Uint8Array([
-        chunk.type.charCodeAt(0), chunk.type.charCodeAt(1),
-        chunk.type.charCodeAt(2), chunk.type.charCodeAt(3)
-    ]);
-    const result = new Uint8Array(12 + chunk.data.length);
-    const view = new DataView(result.buffer);
-    view.setUint32(0, chunk.data.length);
-    result.set(typeBytes, 4);
-    result.set(chunk.data, 8);
-    view.setUint32(8 + chunk.data.length, chunk.storedCrc);
-    return result;
+    return makeChunk(chunk.type, chunk.data);
 }
 
 /**
