@@ -1,0 +1,18 @@
+{
+    "name": "SD Meta Editor",
+    "short_name": "MetaEditor",
+    "description": "Stable Diffusion PNGメタデータ編集アプリ",
+    "start_url": "./",
+    "scope": "./",
+    "display": "standalone",
+    "background_color": "#1a1a1a",
+    "theme_color": "#0066cc",
+    "icons": [
+        {
+            "src": "icon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "any maskable"
+        }
+    ]
+}
