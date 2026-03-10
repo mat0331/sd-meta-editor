@@ -769,19 +769,24 @@ function removeNegativeWeightGroups(prompt) {
 }
 
 /**
- * タグ文字列から純粋なタグ名を取り出す
- * 例: (tagname:1.2) → tagname  /  [tagname] → tagname
+ * タグ文字列から純粋なタグ名を取り出す。
+ * 多段ネストにも対応するためループで繰り返し剥がす。
+ * 例: ((tagname:1.2)) → tagname  /  ((tagname)) → tagname
  * @param {string} tag
  * @returns {string}
  */
 function extractTagName(tag) {
-    const s = tag.trim();
-    // (xxx:数字) または [xxx:数字] 形式
-    let m = s.match(/^[\(\[](.*?):[0-9.\-]+[\)\]]$/);
-    if (m) return m[1].trim();
-    // (xxx) または [xxx] 形式
-    m = s.match(/^[\(\[](.*?)[\)\]]$/);
-    if (m) return m[1].trim();
+    let s = tag.trim();
+    let prev;
+    do {
+        prev = s;
+        // (xxx:数字) または [xxx:数字] 形式
+        let m = s.match(/^[\(\[](.*?):[0-9.\-]+[\)\]]$/);
+        if (m) { s = m[1].trim(); continue; }
+        // (xxx) または [xxx] 形式（重みなし）
+        m = s.match(/^[\(\[](.*?)[\)\]]$/);
+        if (m) { s = m[1].trim(); continue; }
+    } while (s !== prev);
     return s;
 }
 
@@ -822,10 +827,23 @@ function applyRemoveNegativeWeights() {
     showToast(removed > 0 ? `マイナス強調を削除しました` : '対象なし');
 }
 
+/**
+ * 保存済み除外タグ文字列をタグの配列に変換する。
+ * カンマ・改行どちら区切りでも対応し、# コメント行は無視する。
+ * @param {string} raw
+ * @returns {string[]}
+ */
+function parseExcludeTagList(raw) {
+    return raw
+        .split(/[\n,]/)
+        .map((t) => t.trim().toLowerCase())
+        .filter((t) => t && !t.startsWith('#'));
+}
+
 /** 除外タグ削除をポジティブに適用する */
 function applyRemoveExcludeTags() {
     const raw = localStorage.getItem('excludeTags') || '';
-    const tags = raw.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
+    const tags = parseExcludeTagList(raw);
     if (tags.length === 0) {
         showToast('除外タグが設定されていません', 'err');
         return;
