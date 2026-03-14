@@ -74,6 +74,10 @@
             border-style: solid;
             border-color: var(--accent);
         }
+        .file-card.drag-over {
+            border-color: var(--accent);
+            background: #1e2e3e;
+        }
 
         #fileInput { display: none; }
 
@@ -307,7 +311,7 @@
         <button class="pick-btn" onclick="document.getElementById('fileInput').click()">
             📁 PNGファイルを選ぶ
         </button>
-        <div class="file-name" id="fileName">ファイルを選択してください</div>
+        <div class="file-name" id="fileName">ファイルを選択 または ここにドラッグ＆ドロップ</div>
     </div>
 
     <!-- ファイル未選択ヒント -->
@@ -710,11 +714,35 @@ function buildParams(positive, negative, settings) {
 // UI ロジック
 // ============================================================
 
-// ファイル選択ハンドラ
-document.getElementById('fileInput').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+// ============================================================
+// ドラッグ＆ドロップ処理
+// ============================================================
+const fileCard = document.getElementById('fileCard');
 
+fileCard.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    fileCard.classList.add('drag-over');
+});
+
+fileCard.addEventListener('dragleave', (e) => {
+    // カード外に出たときだけ解除（子要素への移動は無視）
+    if (!fileCard.contains(e.relatedTarget)) {
+        fileCard.classList.remove('drag-over');
+    }
+});
+
+fileCard.addEventListener('drop', (e) => {
+    e.preventDefault();
+    fileCard.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file) loadFile(file);
+});
+
+/**
+ * ファイルを読み込んでエディタに展開する（ドラッグ＆ドロップ・クリック共通）
+ * @param {File} file
+ */
+async function loadFile(file) {
     try {
         const buffer = await file.arrayBuffer();
 
@@ -752,6 +780,13 @@ document.getElementById('fileInput').addEventListener('change', async (e) => {
         showToast('読み込みエラー: ' + err.message, 'err');
         console.error(err);
     }
+}
+
+// ファイル選択ハンドラ
+document.getElementById('fileInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    loadFile(file);
 });
 
 // ============================================================
